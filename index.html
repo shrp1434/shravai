@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local AI Chat (No API Key)</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-theme="dark">
+    <!-- 
+    HOW TO RUN:
+    Serve this folder with any static HTTP server (do NOT use file:// protocol).
+    Examples:
+      python -m http.server 8000
+      npx serve .
+      php -S localhost:8000
+    Then open http://localhost:8000 in a modern browser with WebGPU support.
+    
+    REQUIREMENTS:
+    - Modern browser (Chrome/Edge 113+, or latest Firefox/Safari with WebGPU enabled)
+    - Sufficient storage (models are 2-4GB and cached locally)
+    - First load downloads the model and can take several minutes
+    -->
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <h1 class="app-title">Local AI Chat <span class="subtitle">(No API Key)</span></h1>
+            </div>
+            <div class="header-right">
+                <div class="status-pill" id="statusPill" data-status="unloaded">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Not Loaded</span>
+                </div>
+                <button class="icon-btn" id="themeToggle" aria-label="Toggle theme" title="Toggle theme">
+                    <span class="theme-icon">🌙</span>
+                </button>
+                <button class="icon-btn mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle settings menu">
+                    <span>⚙️</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <!-- Sidebar -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-content">
+                    <h2 class="sidebar-heading">Settings</h2>
+                    
+                    <!-- Model Selection -->
+                    <div class="control-group">
+                        <label for="modelSelect">Model</label>
+                        <select id="modelSelect" class="control-input">
+                            <option value="Llama-3.2-3B-Instruct-q4f32_1-MLC">Llama 3.2 3B Instruct (default)</option>
+                            <option value="Llama-3.2-1B-Instruct-q4f32_1-MLC">Llama 3.2 1B Instruct (smaller)</option>
+                            <option value="custom">Custom model string...</option>
+                        </select>
+                        <input type="text" id="customModelInput" class="control-input" placeholder="Enter custom model ID" style="display: none;" />
+                        <p class="hint-text">First load downloads a large model file (2-4GB) and can take several minutes. Model is cached for offline use.</p>
+                    </div>
+
+                    <!-- System Prompt -->
+                    <div class="control-group">
+                        <label for="systemPrompt">System Prompt</label>
+                        <textarea id="systemPrompt" class="control-textarea" rows="4" placeholder="You are a helpful assistant.">You are a helpful assistant. Be concise.</textarea>
+                        <p class="hint-text">Only one system prompt is used. It applies to all messages.</p>
+                    </div>
+
+                    <!-- Concise Mode -->
+                    <div class="control-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="conciseMode" />
+                            <span>Concise mode (under 8 sentences)</span>
+                        </label>
+                    </div>
+
+                    <!-- Temperature -->
+                    <div class="control-group">
+                        <label for="temperature">Temperature: <span id="temperatureValue">0.7</span></label>
+                        <input type="range" id="temperature" class="control-slider" min="0" max="1.5" step="0.1" value="0.7" />
+                    </div>
+
+                    <!-- Max Tokens -->
+                    <div class="control-group">
+                        <label for="maxTokens">Max Tokens</label>
+                        <input type="number" id="maxTokens" class="control-input" min="64" max="2048" value="512" />
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="control-group">
+                        <button class="btn btn-primary" id="loadModelBtn">Load / Reload Model</button>
+                    </div>
+
+                    <div class="control-group button-grid">
+                        <button class="btn btn-secondary" id="clearChatBtn">Clear Chat</button>
+                        <button class="btn btn-secondary" id="regenerateBtn" disabled>Regenerate</button>
+                        <button class="btn btn-secondary" id="exportBtn">Export Chat</button>
+                        <button class="btn btn-secondary" id="importBtn">Import Chat</button>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="btn btn-danger" id="resetDataBtn">Reset App Data</button>
+                        <p class="hint-text">Clears settings and chat history. To clear cached models, use browser settings to clear site data.</p>
+                    </div>
+
+                    <div class="info-box">
+                        <p><strong>Privacy:</strong> Runs entirely on your device. No data is sent to servers. Prompts stay local.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Chat Area -->
+            <main class="chat-main">
+                <!-- Error Banner -->
+                <div class="error-banner" id="errorBanner" style="display: none;">
+                    <div class="error-content">
+                        <span class="error-text" id="errorText"></span>
+                        <button class="error-close" id="errorClose" aria-label="Close error">×</button>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div class="progress-label">Loading model... <span id="progressText">0%</span></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- Chat Messages -->
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">💬</div>
+                        <h2>Welcome to Local AI Chat</h2>
+                        <p>Click "Load / Reload Model" to start. Your conversations run entirely in your browser.</p>
+                    </div>
+                </div>
+
+                <!-- Jump to Bottom Button -->
+                <button class="jump-to-bottom" id="jumpToBottom" style="display: none;">
+                    ↓ Jump to latest
+                </button>
+
+                <!-- Composer -->
+                <div class="composer">
+                    <div class="composer-inner">
+                        <textarea 
+                            id="userInput" 
+                            class="composer-input" 
+                            placeholder="Type a message... (Enter to send, Shift+Enter for new line)" 
+                            rows="1"
+                            aria-label="Message input"
+                        ></textarea>
+                        <div class="composer-actions">
+                            <button class="btn btn-icon" id="stopBtn" style="display: none;" title="Stop generation (Esc)" aria-label="Stop generation">
+                                <span>⏹️</span>
+                            </button>
+                            <button class="btn btn-primary btn-send" id="sendBtn" disabled title="Send message (Enter)" aria-label="Send message">
+                                <span>Send</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Hidden file input for import -->
+    <input type="file" id="fileInput" accept=".json" style="display: none;" />
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
